@@ -1,0 +1,27 @@
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+
+# 클러스터 이름
+name: api-server-cluster
+
+# 노드 설정
+nodes:
+  - role: control-plane
+    extraPortMappings:
+      # HTTP
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      # HTTPS
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+      # API 서버 포트 (테스트용)
+      - containerPort: 8080
+        hostPort: 8080
+        protocol: TCP
+
+# 네트워킹 설정
+networking:
+  podSubnet: "10.244.0.0/16"
+  serviceSubnet: "10.96.0.0/12"
