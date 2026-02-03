@@ -1,0 +1,66 @@
+apiVersion: skaffold/v4beta6
+kind: Config
+metadata:
+  name: go-build-server
+
+build:
+  artifacts:
+    - image: api-server:3.0
+      docker:
+        dockerfile: Dockerfile
+      sync:
+        manual:
+          - src: "**/*.go"
+            dest: /app
+          - src: "pkg/**/*.go"
+            dest: /app
+
+deploy:
+  helm:
+    releases:
+      - name: api-server
+        chartPath: ./helm/api-server
+        namespace: default
+        createNamespace: true
+        setValues:
+          image:
+            tag: "3.0"
+            pullPolicy: Never
+          replicaCount: 1
+
+portForward:
+  - resourceType: service
+    resourceName: api-server
+    port: 8080
+    localPort: 8080
+
+profiles:
+  # 개발 환경 프로파일
+  - name: dev
+    activation:
+      - command: dev
+    build:
+      artifacts:
+        - image: api-server:3.0
+          docker:
+            dockerfile: Dockerfile
+          sync:
+            manual:
+              - src: "**/*.go"
+                dest: /app
+              - src: "pkg/**/*.go"
+                dest: /app
+
+  # 프로덕션 환경 프로파일
+  - name: prod
+    activation:
+      - command: run
+    build:
+      artifacts:
+        - image: api-server:3.0
+          docker:
+            dockerfile: Dockerfile
+    patches:
+      - op: replace
+        path: /deploy/helm/releases/0/setValues/replicaCount
+        value: 3
