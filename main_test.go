@@ -1,6 +1,10 @@
 package main
 
 import (
+	"api-server/pkg/handlers"
+	"api-server/pkg/models"
+	"api-server/pkg/services"
+	"api-server/pkg/utils"
 	"bytes"
 	"encoding/json"
 	"net/http"
@@ -8,164 +12,199 @@ import (
 	"testing"
 )
 
-func TestBuildHandler(t *testing.T) {
-	req, err := http.NewRequest("GET", "/api/build", nil)
-	if err != nil {
-		t.Fatal(err)
+// === BuildJob Handler 테스트 ===
+
+func TestCreateBuildJob(t *testing.T) {
+	logService := services.NewInMemoryLogService()
+	handler := handlers.NewBuildJobHandler(logService)
+
+	payload := models.BuildJobRequest{
+		JobName:           "test-build-job",
+		DockerfileContent: "FROM alpine\nRUN apk add gcc",
 	}
 
-	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(buildHandler)
-	handler.ServeHTTP(rr, req)
-
-	// 상태 코드 확인
-	if status := rr.Code; status != http.StatusOK {
-		t.Errorf("handler returned wrong status code: got %v want %v",
-			status, http.StatusOK)
-	}
-
-	// Content-Type 확인
-	expected := "application/json"
-	if ct := rr.Header().Get("Content-Type"); ct != expected {
-		t.Errorf("handler returned wrong content type: got %v want %v",
-			ct, expected)
-	}
-
-	// 응답 본문 확인
-	var response BuildResponse
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Errorf("failed to decode response: %v", err)
-	}
-
-	if response.Status != "success" {
-		t.Errorf("handler returned wrong status: got %v want %v",
-			response.Status, "success")
-	}
-
-	if response.Version != "1.0.0" {
-		t.Errorf("handler returned wrong version: got %v want %v",
-			response.Version, "1.0.0")
-	}
-}
-
-func TestBuildHandlerResponseStructure(t *testing.T) {
-	req, err := http.NewRequest("GET", "/api/build", nil)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(buildHandler)
-	handler.ServeHTTP(rr, req)
-
-	var response BuildResponse
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Errorf("failed to decode response: %v", err)
-	}
-
-	// 모든 필드가 비어있지 않은지 확인
-	if response.Status == "" {
-		t.Error("Status field is empty")
-	}
-	if response.Message == "" {
-		t.Error("Message field is empty")
-	}
-	if response.Version == "" {
-		t.Error("Version field is empty")
-	}
-}
-
-func TestBuildCreateHandler(t *testing.T) {
-	payload := BuildRequest{
-		ProjectName: "test-project",
-		Environment: "development",
-	}
-
-	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req, err := http.NewRequest("POST", "/api/build/create", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/buildjob", bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")
-
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(buildCreateHandler)
-	handler.ServeHTTP(rr, req)
 
-	// 상태 코드 확인 (201 Created)
+	handler.Create(rr, req)
+
 	if status := rr.Code; status != http.StatusCreated {
-		t.Errorf("handler returned wrong status code: got %v want %v",
-			status, http.StatusCreated)
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusCreated)
 	}
 
-	// 응답 본문 확인
-	var response BuildCreateResponse
-	if err := json.NewDecoder(rr.Body).Decode(&response); err != nil {
-		t.Errorf("failed to decode response: %v", err)
-	}
+	var response models.BuildJobResponse
+	json.NewDecoder(rr.Body).Decode(&response)
 
-	if response.Status != "success" {
-		t.Errorf("handler returned wrong status: got %v want %v",
-			response.Status, "success")
-	}
-
-	if response.ProjectName != "test-project" {
-		t.Errorf("handler returned wrong project name: got %v want %v",
-			response.ProjectName, "test-project")
-	}
-
-	if response.BuildID == "" {
-		t.Error("BuildID field is empty")
+	if response.JobName != "test-build-job" {
+		t.Errorf("handler returned wrong job name: got %v want %v", response.JobName, "test-build-job")
 	}
 }
 
-func TestBuildCreateHandlerMissingFields(t *testing.T) {
-	// 필드가 없는 요청
-	payload := BuildRequest{
-		ProjectName: "test-project",
-		// Environment 누락
-	}
+// === Logs Handler 테스트 ===
 
-	body, err := json.Marshal(payload)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestGetLogs(t *testing.T) {
+	logService := services.NewInMemoryLogService()
+	logService.CreateJobLogs("test-job")
 
-	req, err := http.NewRequest("POST", "/api/build/create", bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	req.Header.Set("Content-Type", "application/json")
-
+	handler := handlers.NewLogsHandler(logService)
+	req, _ := http.NewRequest("GET", "/api/buildjob/test-job/logs", nil)
 	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(buildCreateHandler)
-	handler.ServeHTTP(rr, req)
 
-	// 상태 코드 확인 (400 Bad Request)
-	if status := rr.Code; status != http.StatusBadRequest {
-		t.Errorf("handler returned wrong status code: got %v want %v",
-			status, http.StatusBadRequest)
+	handler.Get(rr, req)
+
+	if status := rr.Code; status != http.StatusOK {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusOK)
+	}
+
+	var response models.LogsResponse
+	json.NewDecoder(rr.Body).Decode(&response)
+
+	if len(response.Logs) == 0 {
+		t.Error("expected logs but got none")
+	}
+
+	if response.Logs[0].Level != "info" {
+		t.Errorf("expected log level 'info' but got %v", response.Logs[0].Level)
 	}
 }
 
-func TestBuildCreateHandlerInvalidMethod(t *testing.T) {
-	// GET 요청으로 POST 핸들러 호출
-	req, err := http.NewRequest("GET", "/api/build/create", nil)
-	if err != nil {
-		t.Fatal(err)
+func TestGetLogsNotFound(t *testing.T) {
+	logService := services.NewInMemoryLogService()
+	handler := handlers.NewLogsHandler(logService)
+
+	req, _ := http.NewRequest("GET", "/api/buildjob/nonexistent-job/logs", nil)
+	rr := httptest.NewRecorder()
+
+	handler.Get(rr, req)
+
+	if status := rr.Code; status != http.StatusNotFound {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusNotFound)
+	}
+}
+
+// === Utility 테스트 ===
+
+func TestDetectLogLevel(t *testing.T) {
+	tests := []struct {
+		message  string
+		expected string
+	}{
+		{"Build succeeded", "info"},
+		{"Warning: deprecated feature", "warn"},
+		{"Error: failed to build image", "error"},
+		{"ERROR in dockerfile", "error"},
 	}
 
-	rr := httptest.NewRecorder()
-	handler := http.HandlerFunc(buildCreateHandler)
-	handler.ServeHTTP(rr, req)
+	for _, tt := range tests {
+		result := utils.DetectLogLevel(tt.message)
+		if result != tt.expected {
+			t.Errorf("DetectLogLevel(%q) = %v, want %v", tt.message, result, tt.expected)
+		}
+	}
+}
 
-	// 상태 코드 확인 (405 Method Not Allowed)
-	if status := rr.Code; status != http.StatusMethodNotAllowed {
-		t.Errorf("handler returned wrong status code: got %v want %v",
-			status, http.StatusMethodNotAllowed)
+// === LogService 테스트 ===
+
+func TestLogService(t *testing.T) {
+	logService := services.NewInMemoryLogService()
+
+	// Job 로그 생성
+	logService.CreateJobLogs("test-job")
+	logs, exists := logService.GetJobLogs("test-job")
+
+	if !exists {
+		t.Error("job logs should exist after creation")
+	}
+
+	if len(logs) == 0 {
+		t.Error("job logs should have initial log entry")
+	}
+
+	// 새로운 로그 추가
+	logService.AddLog("test-job", "buildkit", "Building image...")
+	logs, _ = logService.GetJobLogs("test-job")
+
+	if len(logs) != 2 {
+		t.Errorf("expected 2 logs, got %d", len(logs))
+	}
+
+	if logs[1].Level != "info" {
+		t.Errorf("expected info level for build message, got %v", logs[1].Level)
+	}
+
+	// 에러 로그 추가
+	logService.AddLog("test-job", "buildkit", "Error: failed to compile")
+	logs, _ = logService.GetJobLogs("test-job")
+
+	if logs[len(logs)-1].Level != "error" {
+		t.Errorf("expected error level for failure message, got %v", logs[len(logs)-1].Level)
+	}
+}
+
+func TestLogServiceDeleteJob(t *testing.T) {
+	logService := services.NewInMemoryLogService()
+
+	logService.CreateJobLogs("delete-test-job")
+	logService.AddLog("delete-test-job", "builder", "Test log")
+
+	// 로그가 존재하는지 확인
+	_, exists := logService.GetJobLogs("delete-test-job")
+	if !exists {
+		t.Error("job logs should exist before deletion")
+	}
+
+	// 로그 삭제
+	logService.DeleteJobLogs("delete-test-job")
+
+	// 로그가 삭제되었는지 확인
+	_, exists = logService.GetJobLogs("delete-test-job")
+	if exists {
+		t.Error("job logs should not exist after deletion")
+	}
+}
+
+// === Integration 테스트 ===
+
+func TestBuildJobWorkflow(t *testing.T) {
+	logService := services.NewInMemoryLogService()
+	jobHandler := handlers.NewBuildJobHandler(logService)
+	logsHandler := handlers.NewLogsHandler(logService)
+
+	// 1. BuildJob 생성
+	jobPayload := models.BuildJobRequest{
+		JobName:           "workflow-test-job",
+		DockerfileContent: "FROM alpine\nRUN echo test",
+	}
+
+	body, _ := json.Marshal(jobPayload)
+	jobReq, _ := http.NewRequest("POST", "/api/buildjob", bytes.NewReader(body))
+	jobRR := httptest.NewRecorder()
+	jobHandler.Create(jobRR, jobReq)
+
+	if jobRR.Code != http.StatusCreated {
+		t.Errorf("failed to create build job: got status %d", jobRR.Code)
+	}
+
+	// 2. 로그 추가
+	logService.AddLog("workflow-test-job", "builder", "Build step 1")
+	logService.AddLog("workflow-test-job", "builder", "Build step 2 completed")
+
+	// 3. 로그 조회
+	logsReq, _ := http.NewRequest("GET", "/api/buildjob/workflow-test-job/logs", nil)
+	logsRR := httptest.NewRecorder()
+	logsHandler.Get(logsRR, logsReq)
+
+	if logsRR.Code != http.StatusOK {
+		t.Errorf("failed to get logs: got status %d", logsRR.Code)
+	}
+
+	var logsResponse models.LogsResponse
+	json.NewDecoder(logsRR.Body).Decode(&logsResponse)
+
+	// CreateJobLogs는 자동으로 시스템 로그를 추가하므로 3개 (system + 2 user logs)
+	if logsResponse.TotalLines != 3 {
+		t.Errorf("expected 3 logs, got %d", logsResponse.TotalLines)
 	}
 }
