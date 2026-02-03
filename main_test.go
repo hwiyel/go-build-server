@@ -271,8 +271,93 @@ func TestCreateBuildJobGeneratesYAML(t *testing.T) {
 	if !contains(yamlContent, dockerfileContent) {
 		t.Error("YAML missing dockerfile content")
 	}
-	if !contains(yamlContent, "docker build") {
-		t.Error("YAML missing docker build command")
+	if !contains(yamlContent, "moby/buildkit") {
+		t.Error("YAML missing buildkit image")
+	}
+	if !contains(yamlContent, "buildctl-daemonless.sh") {
+		t.Error("YAML missing buildctl command")
+	}
+}
+
+// === BuildKit Job 생성 테스트 ===
+
+func TestCreateBuildJobWithBuildKit(t *testing.T) {
+	// 테스트 전 jobs 디렉토리 정리
+	os.RemoveAll("jobs")
+	defer os.RemoveAll("jobs")
+
+	logService := services.NewInMemoryLogService()
+	handler := handlers.NewBuildJobHandler(logService)
+
+	jobName := "test-buildkit-job"
+	dockerfileContent := "FROM alpine:latest\nRUN apk add --no-cache curl\nRUN curl -V"
+
+	payload := models.BuildJobRequest{
+		JobName:           jobName,
+		DockerfileContent: dockerfileContent,
+	}
+
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/buildjob", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.Create(rr, req)
+
+	// 응답 상태 확인
+	if status := rr.Code; status != http.StatusCreated {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusCreated)
+	}
+
+	// 응답 본문 확인
+	var response models.BuildJobResponse
+	json.NewDecoder(rr.Body).Decode(&response)
+
+	if response.JobName != jobName {
+		t.Errorf("expected job name %s but got %s", jobName, response.JobName)
+	}
+
+	if response.Status != "created" {
+		t.Errorf("expected status 'created' but got %s", response.Status)
+	}
+
+	// job.yaml 파일 확인
+	yamlPath := filepath.Join("jobs", jobName+".yaml")
+	if _, err := os.Stat(yamlPath); err != nil {
+		t.Errorf("job.yaml file not created: %v", err)
+	}
+
+	// YAML 파일 내용 검증 (BuildKit 기반)
+	content, err := os.ReadFile(yamlPath)
+	if err != nil {
+		t.Errorf("failed to read job.yaml: %v", err)
+	}
+
+	yamlContent := string(content)
+
+	// BuildKit 필수 필드 확인
+	requiredFields := []string{
+		"kind: Job",
+		"moby/buildkit:master-rootless",
+		"buildctl-daemonless.sh",
+		"dockerfile.v0",
+		"busybox:latest",
+		"prepare",
+		"runAsUser: 1000",
+		"runAsGroup: 1000",
+		"seccompProfile:",
+		"Unconfined",
+	}
+
+	for _, field := range requiredFields {
+		if !contains(yamlContent, field) {
+			t.Errorf("YAML missing required field: %s", field)
+		}
+	}
+
+	// Dockerfile 내용 포함 확인
+	if !contains(yamlContent, dockerfileContent) {
+		t.Error("YAML missing dockerfile content")
 	}
 }
 
