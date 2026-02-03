@@ -1,0 +1,31 @@
+replicaCount: 1
+
+image:
+  repository: api-server
+  pullPolicy: Never
+  tag: "3.0"
+
+service:
+  type: ClusterIP
+  port: 8080
+  targetPort: 8080
+
+resources:
+  limits:
+    cpu: 500m
+    memory: 512Mi
+  requests:
+    cpu: 250m
+    memory: 256Mi
+
+nodeSelector: {}
+
+affinity: {}
+
+tolerations: []
+
+# Pod의 환경 변수
+env: {}
+
+# ConfigMap 데이터
+configMap: {}

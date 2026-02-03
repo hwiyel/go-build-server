@@ -1,0 +1,9 @@
+apiVersion: v2
+name: api-server
+description: A Helm chart for api-server Go application
+type: application
+version: 3.0.0
+appVersion: "3.0"
+maintainers:
+  - name: Developer
+    email: dev@example.com

@@ -210,6 +210,82 @@ project#1/
 | Helm | 3.x |
 | Alpine Linux | Latest |
 
+### 9단계: 프로젝트 구조 리팩토링 (v3.0)
+
+**작업 내용:**
+- 모놀리식 main.go를 깔끔한 pkg 아키텍처로 리팩토링
+- 관심사의 분리(Separation of Concerns) 구현
+- 인터페이스 기반 설계로 확장성 확보
+
+**새로운 디렉토리 구조:**
+```
+pkg/
+├── models/              # 데이터 구조
+│   └── models.go       # Request/Response 구조체
+├── handlers/           # HTTP 핸들러
+│   ├── buildjob.go     # BuildJob API
+│   └── logs.go         # Logs API
+├── services/           # 비즈니스 로직
+│   └── log_service.go  # LogService 인터페이스 및 구현
+├── storage/            # 데이터 저장소
+│   ├── interface.go     # LogStorage 인터페이스
+│   └── memory.go        # 메모리 기반 구현
+└── utils/              # 유틸리티
+    └── logger.go       # 로그 레벨 감지 함수
+```
+
+**주요 패턴:**
+1. **Dependency Injection**: 핸들러와 서비스에 의존성 주입
+2. **Interface-based Design**: LogStorage, LogService 인터페이스 사용
+3. **Clean Architecture**: 계층 간 명확한 역할 분리
+
+**생성 파일:**
+- `pkg/models/models.go` - BuildJobRequest, LogEntry 등
+- `pkg/handlers/buildjob.go` - POST /api/buildjob 처리
+- `pkg/handlers/logs.go` - GET /api/buildjob/{job_name}/logs 처리
+- `pkg/services/log_service.go` - 로그 관리 비즈니스 로직
+- `pkg/storage/interface.go` - 저장소 인터페이스
+- `pkg/storage/memory.go` - 메모리 기반 저장소
+- `pkg/utils/logger.go` - DetectLogLevel 함수
+
+**API 정리:**
+- ❌ 삭제: GET /api/build, POST /api/build/create (Build API)
+- ✅ 유지: POST /api/buildjob, GET /api/buildjob/{job_name}/logs
+
+**리팩토링된 main.go:**
+```go
+func main() {
+    logService := services.NewInMemoryLogService()
+    jobHandler := handlers.NewBuildJobHandler(logService)
+    logsHandler := handlers.NewLogsHandler(logService)
+    
+    http.HandleFunc("/api/buildjob", jobHandler.Create)
+    http.HandleFunc("/api/buildjob/", logsHandler.Get)
+    
+    http.ListenAndServe(":8080", nil)
+}
+```
+
+**테스트:**
+- 7개 테스트 모두 통과
+- 핸들러 테스트, 서비스 테스트, 유틸리티 테스트 포함
+- 통합 테스트(BuildJobWorkflow) 추가
+
+**Docker 빌드:**
+```bash
+docker build -t api-server:3.0 .
+```
+
+## 기술 스택
+
+| 항목 | 버전 |
+|------|------|
+| Go | 1.23 |
+| Docker | Latest |
+| Kubernetes (KIND) | Latest |
+| Helm | 3.x |
+| Alpine Linux | Latest |
+
 ## 주요 학습점
 
 1. **Go HTTP Server**: 기본 HTTP 핸들러 작성 및 JSON 응답 처리
