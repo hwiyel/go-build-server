@@ -9,6 +9,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 )
 
@@ -207,4 +209,71 @@ func TestBuildJobWorkflow(t *testing.T) {
 	if logsResponse.TotalLines != 3 {
 		t.Errorf("expected 3 logs, got %d", logsResponse.TotalLines)
 	}
+}
+
+// === Job YAML 생성 테스트 ===
+
+func TestCreateBuildJobGeneratesYAML(t *testing.T) {
+	// 테스트 전 jobs 디렉토리 정리
+	os.RemoveAll("jobs")
+	defer os.RemoveAll("jobs")
+
+	logService := services.NewInMemoryLogService()
+	handler := handlers.NewBuildJobHandler(logService)
+
+	jobName := "test-yaml-job"
+	dockerfileContent := "FROM alpine\nRUN apk add curl"
+
+	payload := models.BuildJobRequest{
+		JobName:           jobName,
+		DockerfileContent: dockerfileContent,
+	}
+
+	body, _ := json.Marshal(payload)
+	req, _ := http.NewRequest("POST", "/api/buildjob", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	rr := httptest.NewRecorder()
+
+	handler.Create(rr, req)
+
+	if status := rr.Code; status != http.StatusCreated {
+		t.Errorf("handler returned wrong status code: got %v want %v", status, http.StatusCreated)
+	}
+
+	// job.yaml 파일이 생성되었는지 확인
+	yamlPath := filepath.Join("jobs", jobName+".yaml")
+	if _, err := os.Stat(yamlPath); err != nil {
+		t.Errorf("job.yaml file not created: %v", err)
+	}
+
+	// job.yaml 파일 내용 검증
+	content, err := os.ReadFile(yamlPath)
+	if err != nil {
+		t.Errorf("failed to read job.yaml: %v", err)
+	}
+
+	yamlContent := string(content)
+	
+	// YAML 파일이 필수 필드를 포함하는지 확인
+	if !contains(yamlContent, "apiVersion: batch/v1") {
+		t.Error("YAML missing apiVersion")
+	}
+	if !contains(yamlContent, "kind: Job") {
+		t.Error("YAML missing kind: Job")
+	}
+	if !contains(yamlContent, jobName) {
+		t.Error("YAML missing job name")
+	}
+	if !contains(yamlContent, dockerfileContent) {
+		t.Error("YAML missing dockerfile content")
+	}
+	if !contains(yamlContent, "docker build") {
+		t.Error("YAML missing docker build command")
+	}
+}
+
+// === Helper 함수 ===
+
+func contains(text, substring string) bool {
+	return len(text) > 0 && len(substring) > 0 && bytes.Contains([]byte(text), []byte(substring))
 }

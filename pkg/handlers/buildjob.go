@@ -4,7 +4,10 @@ import (
 	"api-server/pkg/models"
 	"api-server/pkg/services"
 	"encoding/json"
+	"fmt"
 	"net/http"
+	"os"
+	"path/filepath"
 	"time"
 )
 
@@ -54,6 +57,15 @@ func (h *BuildJobHandler) Create(w http.ResponseWriter, r *http.Request) {
 	// 로그 초기화
 	h.logService.CreateJobLogs(req.JobName)
 
+	// job.yaml 생성
+	if err := createJobYAML(req.JobName, req.DockerfileContent); err != nil {
+		w.WriteHeader(http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(models.ErrorResponse{
+			Error: fmt.Sprintf("Failed to create job.yaml: %v", err),
+		})
+		return
+	}
+
 	response := models.BuildJobResponse{
 		Status:    "created",
 		Message:   "Build job created successfully",
@@ -66,3 +78,57 @@ func (h *BuildJobHandler) Create(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusCreated)
 	json.NewEncoder(w).Encode(response)
 }
+
+// createJobYAML은 Kubernetes Job을 위한 job.yaml 파일을 생성합니다
+func createJobYAML(jobName, dockerfileContent string) error {
+	// jobs 디렉토리가 없으면 생성
+	if err := os.MkdirAll("jobs", 0755); err != nil {
+		return err
+	}
+
+	yamlContent := fmt.Sprintf(`apiVersion: batch/v1
+kind: Job
+metadata:
+  name: %s
+  namespace: default
+spec:
+  ttlSecondsAfterFinished: 300
+  backoffLimit: 3
+  template:
+    metadata:
+      name: %s
+    spec:
+      serviceAccountName: default
+      restartPolicy: Never
+      containers:
+      - name: builder
+        image: docker:latest
+        imagePullPolicy: IfNotPresent
+        securityContext:
+          privileged: true
+        workingDir: /workspace
+        command:
+          - sh
+          - -c
+          - |
+            cat > Dockerfile << 'EOFLINE'
+%s
+EOFLINE
+            docker build -t %s:latest -f Dockerfile .
+        volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+        - name: docker-sock
+          mountPath: /var/run/docker.sock
+      volumes:
+      - name: workspace
+        emptyDir: {}
+      - name: docker-sock
+        hostPath:
+          path: /var/run/docker.sock
+`, jobName, jobName, dockerfileContent, jobName)
+
+	filePath := filepath.Join("jobs", fmt.Sprintf("%s.yaml", jobName))
+	return os.WriteFile(filePath, []byte(yamlContent), 0644)
+}
+
